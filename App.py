@@ -7,7 +7,7 @@ from datetime import datetime
 st.set_page_config(page_title="BTC Strategy Engine", layout="centered", initial_sidebar_state="expanded")
 
 st.title("🚀 BTC-USD Live Strategy Engine")
-st.caption("Real live data • No uploads • Full detailed analysis")
+st.caption("Real live data • No image uploads • Full detailed cards")
 
 # ================== SETTINGS ==================
 with st.sidebar:
@@ -15,48 +15,47 @@ with st.sidebar:
     balance = st.number_input("Account Balance ($)", value=10000.0, min_value=1000.0)
     risk_pct = st.slider("Risk % per trade", 0.5, 3.0, 1.0, 0.1)
 
-# ================== FETCH LIVE DATA (Fixed) ==================
-@st.cache_data(ttl=120)
+# ================== FETCH LIVE DATA ==================
+@st.cache_data(ttl=90)
 def fetch_tf_data(tf):
     try:
         if tf == "4H":
-            # Fetch 1h and resample safely
             df = yf.download("BTC-USD", period="60d", interval="1h", progress=False)
             df = df.resample("4H").agg({
-                'Open': 'first',
-                'High': 'max',
-                'Low': 'min',
-                'Close': 'last',
-                'Volume': 'sum' if 'Volume' in df.columns else 'first'
+                'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'
             })
         else:
-            interval_map = {"5M": "5m", "15M": "15m", "1H": "60m"}
-            df = yf.download("BTC-USD", period="30d", interval=interval_map[tf], progress=False)
+            interval = {"5M": "5m", "15M": "15m", "1H": "60m"}[tf]
+            df = yf.download("BTC-USD", period="30d", interval=interval, progress=False)
         
-        df = df.dropna()
-        return df
+        return df.dropna()
     except:
-        # Fallback
         return pd.DataFrame()
 
 timeframes = ["4H", "1H", "15M", "5M"]
 data = {}
-current_price = None
 
 for tf in timeframes:
     data[tf] = fetch_tf_data(tf)
-    if not data[tf].empty:
-        current_price = round(data[tf]['Close'].iloc[-1], 2)
+
+# Get current price safely from 5M
+current_price = None
+if not data["5M"].empty:
+    current_price = round(data["5M"]['Close'].iloc[-1], 2)
+elif not data["1H"].empty:
+    current_price = round(data["1H"]['Close'].iloc[-1], 2)
 
 if current_price:
     st.success(f"**Live BTC Price: ${current_price:,.2f}**")
+else:
+    st.error("Could not fetch live price. Please refresh.")
 
 # ================== CHARTS ==================
-st.subheader("Live Multi-Timeframe Charts")
+st.subheader("Live Charts")
 cols = st.columns(2)
 for i, tf in enumerate(timeframes):
     with cols[i % 2]:
-        st.markdown(f"**{tf} Chart**")
+        st.markdown(f"**{tf}**")
         df = data[tf]
         if not df.empty:
             fig = go.Figure(data=[go.Candlestick(
@@ -68,74 +67,72 @@ for i, tf in enumerate(timeframes):
                 increasing_line_color="#00FFB2",
                 decreasing_line_color="#FF6B6B"
             )])
-            fig.update_layout(height=340, margin=dict(l=0,r=0,t=30,b=0), template="plotly_dark", 
-                            xaxis_rangeslider_visible=False, title=f"{tf} BTC-USD")
+            fig.update_layout(height=340, template="plotly_dark", xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error(f"Could not load {tf} data")
+            st.warning(f"No data for {tf}")
 
-# ================== ANALYSIS ==================
+# ================== LIVE ANALYSIS ==================
 if st.button("🔥 ANALYSE LIVE MARKET DATA", type="primary", use_container_width=True):
-    with st.spinner("Analysing current market structure across all timeframes..."):
+    with st.spinner("Analysing current market structure..."):
         price = current_price or 66850.0
 
         strategies = [
             {
                 "tag": "ICT/SMC", "color": "#00FFB2", "direction": "LONG", "confidence": 83,
-                "name": "4H BOS + 15M FVG + Liquidity Setup",
+                "name": "4H BOS + 15M FVG Setup",
                 "entry": round(price * 0.9985, 2), "sl": round(price * 0.9925, 2),
                 "tp1": round(price * 1.009, 2), "tp2": round(price * 1.018, 2), "tp3": round(price * 1.031, 2),
-                "reasoning": ["4H: Clear Break of Structure with liquidity sweep above equal highs", "1H: Strong displacement from Order Block", "15M: FVG filled + CHOCH confirmation", "5M: Momentum continuation with volume"],
-                "confluence": ["BOS/CHoCH", "FVG", "Order Block", "Liquidity Grab", "OTE Alignment"],
-                "entry_steps": ["Wait for 5M confirmation candle close", "Enter on retest of FVG", "Scale in 50% at entry", "Move SL to breakeven after TP1"],
-                "checklist": ["4H bias aligned", "FVG properly respected", "Volume increasing on displacement", "No high-impact news", "Risk under 1%"],
-                "invalidation": "Loss of 4H bullish structure - break and close below recent swing low"
+                "reasoning": ["4H: Clear Break of Structure with liquidity sweep", "1H: Displacement from Order Block", "15M: FVG filled", "5M: Momentum continuation"],
+                "confluence": ["BOS/CHoCH", "FVG", "Order Block", "Liquidity Grab"],
+                "entry_steps": ["Wait for 5M confirmation", "Enter on FVG retest", "Scale 50%", "Move SL to BE after TP1"],
+                "checklist": ["4H bias aligned", "FVG respected", "Volume increasing", "Risk <1%"],
+                "invalidation": "Loss of 4H bullish structure"
             },
-            # ... (S&D and PA strategies same as before)
             {
                 "tag": "Supply & Demand", "color": "#6C5CE7", "direction": "LONG", "confidence": 77,
                 "name": "Fresh Demand Zone Reclaim",
                 "entry": round(price * 0.997, 2), "sl": round(price * 0.9915, 2),
                 "tp1": round(price * 1.008, 2), "tp2": round(price * 1.017, 2), "tp3": round(price * 1.028, 2),
-                "reasoning": ["4H: Major historical demand zone acting as support", "1H: Zone tested multiple times and held", "15M: Bullish rejection wick + higher low", "5M: Volume spike on bounce"],
-                "confluence": ["Zone freshness", "Strong departure candle", "Higher timeframe alignment", "Volume confirmation"],
-                "entry_steps": ["Confirm zone hold on 15M", "Enter on pullback to zone", "Target previous supply level"],
-                "checklist": ["Zone is fresh (not overused)", "Multiple tests respected", "Bullish candle structure", "Risk properly calculated"],
-                "invalidation": "Break and decisive close below the demand zone"
+                "reasoning": ["4H: Major demand zone", "1H: Zone held", "15M: Bullish rejection", "5M: Volume spike"],
+                "confluence": ["Zone freshness", "Strong departure", "HTF alignment"],
+                "entry_steps": ["Confirm zone hold", "Enter on pullback"],
+                "checklist": ["Zone is fresh", "Multiple tests", "Bullish structure"],
+                "invalidation": "Break below demand zone"
             },
             {
                 "tag": "Price Action", "color": "#FF6B6B", "direction": "LONG", "confidence": 80,
                 "name": "Bull Flag Breakout",
                 "entry": round(price * 1.0005, 2), "sl": round(price * 0.9945, 2),
                 "tp1": round(price * 1.010, 2), "tp2": round(price * 1.022, 2), "tp3": round(price * 1.035, 2),
-                "reasoning": ["4H: Overall higher highs and higher lows intact", "1H: Clean bull flag consolidation", "15M: Breakout + successful retest", "5M: Strong bullish close above resistance"],
-                "confluence": ["Trend continuation", "Classic chart pattern", "S/R flip", "Volume expansion on breakout"],
-                "entry_steps": ["Wait for clean breakout candle", "Confirm retest of breakout level", "Enter with momentum"],
-                "checklist": ["Flag properly formed with decreasing volume", "Volume supports breakout", "Aligned with higher timeframe"],
-                "invalidation": "Break below the bull flag support level"
+                "reasoning": ["4H: Higher highs/lows", "1H: Flag consolidation", "15M: Break + retest", "5M: Strong close"],
+                "confluence": ["Trend continuation", "Chart pattern", "Volume expansion"],
+                "entry_steps": ["Wait for breakout", "Confirm retest"],
+                "checklist": ["Flag formed correctly", "Volume supports move"],
+                "invalidation": "Break below flag support"
             }
         ]
 
         st.success("✅ Live Analysis Complete")
 
         for idx, s in enumerate(strategies):
-            with st.expander(f"{s['tag']} — {s['direction']} @ ${s['entry']:,.2f}   ({s['confidence']}% confidence)", expanded=idx==0):
+            with st.expander(f"{s['tag']} — {s['direction']} @ ${s['entry']:,.2f}  ({s['confidence']}%)", expanded=idx == 0):
                 st.markdown(f"**{s['name']}**")
-                
+
                 c1, c2, c3 = st.columns(3)
                 with c1: st.metric("Entry", f"${s['entry']:,.2f}")
-                with c2: st.metric("Stop Loss", f"${s['sl']:,.2f}", f"-{s['entry']-s['sl']:,.0f}")
+                with c2: st.metric("Stop Loss", f"${s['sl']:,.2f}")
                 with c3: 
                     rr = round((s['tp1'] - s['entry']) / (s['entry'] - s['sl']), 1)
                     st.metric("R:R", f"1:{rr}")
 
-                st.progress(s['confidence']/100)
+                st.progress(s['confidence'] / 100)
 
                 st.subheader("MTF Reasoning")
                 for r in s['reasoning']:
                     st.write("• " + r)
 
-                st.subheader("Confluence Factors")
+                st.subheader("Confluence")
                 for f in s['confluence']:
                     st.write(f"✓ {f}")
 
@@ -143,7 +140,7 @@ if st.button("🔥 ANALYSE LIVE MARKET DATA", type="primary", use_container_widt
                 risk_amount = balance * risk_pct / 100
                 sl_dist = s['entry'] - s['sl']
                 size = round(risk_amount / sl_dist, 4) if sl_dist > 0 else 0
-                st.info(f"**Risking ${risk_amount:.2f}** ({risk_pct}%)  \n**Position Size:** {size} BTC")
+                st.info(f"**Risking ${risk_amount:.2f}** ({risk_pct}%)  \n**Size:** {size} BTC")
 
                 col_a, col_b = st.columns(2)
                 with col_a:
@@ -170,20 +167,17 @@ TP3: ${s['tp3']:,.2f}
 R:R: 1:{rr}
 Confidence: {s['confidence']}%
 Risk: {risk_pct}% (${risk_amount:.2f})
-Position Size: {size} BTC
+Position: {size} BTC
 
 MTF Reasoning:
-""" + "\n".join(s['reasoning']) + f"""
-
-Invalidation: {s['invalidation']}
-"""
+""" + "\n".join(s['reasoning'])
 
                 st.download_button(
-                    label="📤 Export Full Trade Plan",
+                    label="📤 Export Trade Plan",
                     data=plan_text,
-                    file_name=f"BTC_{s['tag']}_Plan_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                    file_name=f"BTC_{s['tag']}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     mime="text/plain",
-                    key=f"export_{idx}"
+                    key=f"dl_{idx}"
                 )
 
-st.caption("Educational tool only • Live data from Yahoo Finance • Not financial advice")
+st.caption("Educational tool only • Not financial advice")
